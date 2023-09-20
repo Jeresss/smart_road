@@ -1,5 +1,5 @@
 use crate::Vehicle;
-
+use crate::MovementDirection;
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct PhysicsEngine {
     safety_distance: f32,
@@ -12,11 +12,26 @@ impl PhysicsEngine {
 
     // Update vehicle's position and speed based on elapsed time
     pub fn update(&self, vehicle: &mut Vehicle, elapsed_time: f32) {
-        let new_position = vehicle.position + vehicle.velocity * elapsed_time;
-        vehicle.position = new_position;
-
+        vehicle.velocity += vehicle.acceleration * elapsed_time;
+        
+        match vehicle.movement_direction {
+            MovementDirection::Up => {
+                vehicle.position.y -= vehicle.velocity * elapsed_time;  // Decreasing y moves up
+            },
+            MovementDirection::Down => {
+                vehicle.position.y += vehicle.velocity * elapsed_time;  // Increasing y moves down
+            },
+            MovementDirection::Left => {
+                vehicle.position.x -= vehicle.velocity * elapsed_time;  // Decreasing x moves left
+            },
+            MovementDirection::Right => {
+                vehicle.position.x += vehicle.velocity * elapsed_time;  // Increasing x moves right
+            }
+        }
+        
         vehicle.update_distance_and_time_to_intersection();
     }
+    
 
 
     // Adjust vehicle's speed to maintain safety distance from vehicle ahead
@@ -32,13 +47,3 @@ pub fn adjust_speed_for_safety(&self, vehicle: &Vehicle, vehicle_ahead: &Vehicle
 }   
     
 }
-
-// Example usage in simulation loop:
-// let physics_engine = PhysicsEngine::new(5.0); // Safety distance of 5 units
-// for vehicle in vehicles {
-//     physics_engine.update(&mut vehicle, elapsed_time);
-//     // Check if there's a vehicle ahead in the same lane and adjust speed
-//     if let Some(vehicle_ahead) = get_vehicle_ahead_in_same_lane(&vehicle) {
-//         physics_engine.adjust_speed_for_safety(&mut vehicle, &vehicle_ahead);
-//     }
-// }
