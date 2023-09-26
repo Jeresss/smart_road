@@ -1,8 +1,12 @@
 extern crate sdl2;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use vehicle::Vehicle;
+use intersection_manager::IntersectionManager;
 
-mod physics_engine;
+ mod vehicle;
+ mod intersection_manager;
+ mod physics_engine;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TurnDirection {
@@ -50,153 +54,6 @@ impl Sub for Position {
     }
 }
 
-#[derive(Debug)]
-pub struct Vehicle {
-    id: i32,
-    size: f32,
-    movement_direction: MovementDirection,
-    turn_direction: TurnDirection,
-    velocity: f32,
-    distance_to_intersection: f32,
-    time_to_intersection: f32,
-    position: Position,
-    acceleration: f32,
-}
-
-impl Vehicle {
-    pub fn new(
-        movement_direction: MovementDirection,
-        turn_direction: TurnDirection,
-        velocity: f32,
-        position: Position
-    ) -> Self {
-        Vehicle {
-            id: 0,
-            size: 10.0, // Let's say every vehicle has a size of 10 units for now
-            movement_direction,
-            turn_direction,
-            velocity,
-            distance_to_intersection: 0.0,
-            time_to_intersection: 0.0,
-            position,
-            acceleration: 0.0, // Default value
-        }
-    }
-
-    pub fn update_distance_and_time_to_intersection(&mut self) {
-        // Assuming intersection is at (0,0)
-        self.distance_to_intersection = self.position.sub(Position::new(0.0, 0.0));
-        if self.velocity != 0.0 {
-            self.time_to_intersection = self.distance_to_intersection / self.velocity;
-        } else {
-            self.time_to_intersection = f32::MAX;
-        }
-    }
-}
-
-//#[derive(Debug)]
-pub struct Reservation {
-    vehicle_id: i32,
-    turn_direction: TurnDirection,
-    start_time: std::time::Duration,
-    end_time: std::time::Duration,
-}
-
-struct IntersectionManager {
-    reservations: Vec<Reservation>,
-}
-
-impl IntersectionManager {
-    fn new() -> Self {
-        IntersectionManager {
-            reservations: Vec::new(),
-        }
-    }
-    fn calculate_reservation_window(
-        &self,
-        vehicle: &Vehicle
-    ) -> (std::time::Duration, std::time::Duration) {
-        let entry_time = std::time::Duration::from_secs_f32(vehicle.time_to_intersection);
-        let time_to_cross = vehicle.size / vehicle.velocity;
-        let exit_time = entry_time + std::time::Duration::from_secs_f32(time_to_cross);
-        (entry_time, exit_time)
-    }
-
-    fn request_reservation(&mut self, vehicle: &Vehicle) -> Result<(), &'static str> {
-        let (start_time, end_time) = self.calculate_reservation_window(vehicle);
-
-        for existing_reservation in &self.reservations {
-            if
-                self.has_conflict(
-                    start_time,
-                    end_time,
-                    vehicle.turn_direction,
-                    existing_reservation
-                )
-            {
-                return Err("Reservation conflict");
-            }
-        }
-        let reservation = Reservation {
-            vehicle_id: vehicle.id,
-            turn_direction: vehicle.turn_direction,
-            start_time,
-            end_time,
-        };
-        self.reservations.push(reservation);
-        Ok(())
-    }
-
-    fn has_conflict(
-        &self,
-        proposed_start: std::time::Duration,
-        proposed_end: std::time::Duration,
-        proposed_turn_direction: TurnDirection,
-        existing_reservation: &Reservation
-    ) -> bool {
-        // Check time overlap
-        if
-            proposed_start <= existing_reservation.end_time &&
-            proposed_end >= existing_reservation.start_time
-        {
-            // Then check direction conflict based on our assumptions
-            match (proposed_turn_direction, existing_reservation.turn_direction) {
-                (TurnDirection::Left, _) => {
-                    return true;
-                } // Left conflicts with everything
-                (_, TurnDirection::Left) => {
-                    return true;
-                } // Anything conflicts with left
-                (TurnDirection::Straight, TurnDirection::Straight) => {
-                    // If they are coming from opposite directions, they conflict
-                    // This would require further details of the direction they're coming from which is not provided currently
-                    // For now, let's assume they always conflict to be safe.
-                    return true;
-                }
-                // Add more rules if needed
-                _ => {
-                    return false;
-                } // No conflict for other cases
-            }
-        }
-        false
-    }
-}
-
-pub fn get_vehicle_ahead_in_same_direction(
-    current_vehicle: &Vehicle,
-    vehicles: &[Vehicle]
-) -> Option<usize> {
-    vehicles
-        .iter()
-        .enumerate()
-        .filter(|&(_, v)| v.movement_direction == current_vehicle.movement_direction) // Same direction
-        .filter(|&(_, v)| v.distance_to_intersection < current_vehicle.distance_to_intersection) // is ahead
-        .min_by(|&(_, a), &(_, b)|
-            a.distance_to_intersection.partial_cmp(&b.distance_to_intersection).unwrap()
-        ) // closest vehicle ahead
-        .map(|(index, _)| index) // return only the index
-}
 
 fn main() {
     let sdl_context = sdl2::init().unwrap();
@@ -217,8 +74,6 @@ fn main() {
     let physics_engine = PhysicsEngine::new(5.0); // Safety distance of 5 units
     let mut next_vehicle_id: i32 = 1;
 
-    const VEHICLE_CREATION_PROBABILITY: f32 = 0.05;
-
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -226,12 +81,23 @@ fn main() {
                     break 'running;
                 }
                 Event::KeyDown { keycode: Some(Keycode::Up), .. } => {
+                    let turn_direction;
+                    let x = if rand::random::<f32>() < 0.33 {
+                        turn_direction = TurnDirection::Right;
+                        9.75 * 56.0
+                    } else if rand::random::<f32>() < 0.5 {
+                        turn_direction = TurnDirection::Straight;
+                        10.7 * 56.0
+                    } else {
+                        turn_direction = TurnDirection::Left;
+                        11.5 * 56.0
+                    };
                     let vehicle = Vehicle {
-                        position: Position { x: 400.0, y: 867.0 },
-                        size: 10.0,
+                        position: Position { x, y: 867.0 },
+                        size: 55.0,
                         velocity: 10.0,
                         movement_direction: MovementDirection::Up,
-                        turn_direction: TurnDirection::Straight,
+                        turn_direction,
                         distance_to_intersection: 0.0,
                         time_to_intersection: 0.0,
                         id: next_vehicle_id,
@@ -240,13 +106,27 @@ fn main() {
                     vehicles.push(vehicle);
                     next_vehicle_id += 1;
                 }
+                
                 Event::KeyDown { keycode: Some(Keycode::Down), .. } => {
+                    let turn_direction = if rand::random::<f32>() < 0.33 {
+                        TurnDirection::Left
+                    } else if rand::random::<f32>() < 0.5 {
+                        TurnDirection::Straight
+                    } else {
+                        TurnDirection::Right
+                    };
+                
+                    let x = match turn_direction {
+                        TurnDirection::Right => 6.6 * 56.0,
+                        TurnDirection::Straight => 7.6 * 56.0,
+                        TurnDirection::Left => 8.6 * 56.0,
+                    };
                     let vehicle = Vehicle {
-                        position: Position { x: 400.0, y: -67.0 },
-                        size: 10.0,
+                        position: Position { x, y: -67.0 },
+                        size: 55.0,
                         velocity: 10.0,
                         movement_direction: MovementDirection::Down,
-                        turn_direction: TurnDirection::Straight,
+                        turn_direction,
                         distance_to_intersection: 0.0,
                         time_to_intersection: 0.0,
                         id: next_vehicle_id,
@@ -255,13 +135,27 @@ fn main() {
                     vehicles.push(vehicle);
                     next_vehicle_id += 1;
                 }
+                
                 Event::KeyDown { keycode: Some(Keycode::Left), .. } => {
+                    let turn_direction = if rand::random::<f32>() < 0.33 {
+                        TurnDirection::Left
+                    } else if rand::random::<f32>() < 0.5 {
+                        TurnDirection::Straight
+                    } else {
+                        TurnDirection::Right
+                    };
+                
+                    let y = match turn_direction {
+                        TurnDirection::Right => 6.6 * 56.0,
+                        TurnDirection::Straight => 7.6 * 56.0,
+                        TurnDirection::Left => 8.6 * 56.0,
+                    };
                     let vehicle = Vehicle {
-                        position: Position { x: 867.0, y: 400.0 },
-                        size: 10.0,
+                        position: Position { x: 867.0, y },
+                        size: 55.0,
                         velocity: 10.0,
                         movement_direction: MovementDirection::Left,
-                        turn_direction: TurnDirection::Straight,
+                        turn_direction,
                         distance_to_intersection: 0.0,
                         time_to_intersection: 0.0,
                         id: next_vehicle_id,
@@ -270,13 +164,27 @@ fn main() {
                     vehicles.push(vehicle);
                     next_vehicle_id += 1;
                 }
+                
                 Event::KeyDown { keycode: Some(Keycode::Right), .. } => {
+                    let turn_direction = if rand::random::<f32>() < 0.33 {
+                        TurnDirection::Left
+                    } else if rand::random::<f32>() < 0.5 {
+                        TurnDirection::Straight
+                    } else {
+                        TurnDirection::Right
+                    };
+                    
+                    let y = match turn_direction {
+                        TurnDirection::Left => 9.5 * 56.0,
+                        TurnDirection::Straight => 10.5 * 56.0,
+                        TurnDirection::Right => 11.2 * 56.0,
+                    };
                     let vehicle = Vehicle {
-                        position: Position { x: -67.0, y: 400.0 },
-                        size: 10.0,
+                        position: Position { x: -67.0, y },
+                        size: 55.0,
                         velocity: 10.0,
                         movement_direction: MovementDirection::Right,
-                        turn_direction: TurnDirection::Straight,
+                        turn_direction,
                         distance_to_intersection: 0.0,
                         time_to_intersection: 0.0,
                         id: next_vehicle_id,
@@ -285,64 +193,9 @@ fn main() {
                     vehicles.push(vehicle);
                     next_vehicle_id += 1;
                 }
+                
                 _ => {}
             }
-        }
-
-        if rand::random::<f32>() < VEHICLE_CREATION_PROBABILITY {
-            let turn_direction = if rand::random::<f32>() < 0.33 {
-                TurnDirection::Left
-            } else if rand::random::<f32>() < 0.5 {
-                TurnDirection::Straight
-            } else {
-                TurnDirection::Right
-            };
-
-            let movement_direction = match rand::random::<f32>() {
-                x if x < 0.25 => MovementDirection::Up,
-                x if x < 0.5 => MovementDirection::Down,
-                x if x < 0.75 => MovementDirection::Left,
-                _ => MovementDirection::Right,
-            };
-
-            let position = match movement_direction {
-                MovementDirection::Up => {
-                    let x = match turn_direction {
-                        TurnDirection::Right => 400.0 - 22.0,
-                        TurnDirection::Straight => 400.0,
-                        TurnDirection::Left => 400.0 + 22.0,
-                    };
-                    Position::new(x, 867.0)
-                }
-                MovementDirection::Down => {
-                    let x = match turn_direction {
-                        TurnDirection::Right => 400.0 + 22.0,
-                        TurnDirection::Straight => 400.0,
-                        TurnDirection::Left => 400.0 - 22.0,
-                    };
-                    Position::new(x, -67.0)
-                }
-                MovementDirection::Left => {
-                    let y = match turn_direction {
-                        TurnDirection::Right => 400.0 + 22.0,
-                        TurnDirection::Straight => 400.0,
-                        TurnDirection::Left => 400.0 - 22.0,
-                    };
-                    Position::new(867.0, y)
-                }
-                MovementDirection::Right => {
-                    let y = match turn_direction {
-                        TurnDirection::Right => 400.0 - 22.0,
-                        TurnDirection::Straight => 400.0,
-                        TurnDirection::Left => 400.0 + 22.0,
-                    };
-                    Position::new(-67.0, y)
-                }
-            };
-
-            vehicles.push(Vehicle::new(movement_direction, turn_direction, 30.0, position));
-            vehicles.last_mut().unwrap().id = next_vehicle_id;
-            next_vehicle_id += 1;
         }
 
         let mut adjustments: Vec<(usize, f32)> = Vec::new(); // Stores (index, new_speed)
@@ -351,15 +204,21 @@ fn main() {
         for i in 0..vehicles.len() {
             physics_engine.update(&mut vehicles[i], 1.0);
             vehicles[i].update_distance_and_time_to_intersection();
+            println!("Vehicle {} distance to intersection: {}", vehicles[i].id, vehicles[i].distance_to_intersection);
 
-            if
-                let Some(vehicle_ahead_index) = get_vehicle_ahead_in_same_direction(
-                    &vehicles[i],
-                    &vehicles
-                )
-            {
-                vehicle_pairs.push((i, vehicle_ahead_index));
-            }
+
+                // Check if vehicle is at the intersection
+                if vehicles[i].distance_to_intersection < 5.0 && vehicles[i].distance_to_intersection > 0.0 {
+                    println!("Vehicle {} reached intersection with turn direction: {:?}", vehicles[i].id, vehicles[i].turn_direction);
+                    vehicles[i].update_direction_at_intersection();
+                    println!("Vehicle {} new movement direction: {:?}", vehicles[i].id, vehicles[i].movement_direction);
+                }
+                
+
+                if let Some(vehicle_ahead_index) = IntersectionManager::get_vehicle_ahead_in_same_direction(&vehicles[i], &vehicles) {
+                    vehicle_pairs.push((i, vehicle_ahead_index));
+                }
+                
 
             if
                 vehicles[i].distance_to_intersection < 20.0 &&
@@ -392,9 +251,9 @@ fn main() {
         vehicles.retain(|vehicle| {
             match vehicle.movement_direction {
                 MovementDirection::Up => vehicle.position.y >= 0.0,
-                MovementDirection::Down => vehicle.position.y <= 800.0,
+                MovementDirection::Down => vehicle.position.y <= 1000.0,
                 MovementDirection::Left => vehicle.position.x >= 0.0,
-                MovementDirection::Right => vehicle.position.x <= 800.0,
+                MovementDirection::Right => vehicle.position.x <= 1000.0,
             }
         });
 
@@ -402,17 +261,18 @@ fn main() {
             canvas.set_draw_color(sdl2::pixels::Color::RGB(0, 128, 0)); // Green color
             canvas.clear();
 
-        draw_grid(&mut canvas);
+       // draw_grid(&mut canvas);
         draw_roads(&mut canvas);
+        draw_boundary_lines(&mut canvas);
         draw_center_lines(&mut canvas);
         draw_intersection(&mut canvas);
 
         // Draw vehicles
         canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 0, 0));
         for vehicle in &vehicles {
-            let x = (vehicle.position.x as i32) - 5;
-            let y = (vehicle.position.y as i32) - 5;
-            canvas.fill_rect(sdl2::rect::Rect::new(x, y, 10, 10)).unwrap(); // Vehicles are 10x10 squares
+            let x = (vehicle.position.x as i32) - (vehicle.size as i32 / 2);
+            let y = (vehicle.position.y as i32) - (vehicle.size as i32 / 2);
+            canvas.fill_rect(sdl2::rect::Rect::new(x, y, vehicle.size as u32,vehicle.size as u32)).unwrap(); // Vehicles are 10x10 squares
         }
         canvas.present(); // Present the rendered frame
 
@@ -420,6 +280,7 @@ fn main() {
     }
 }
 
+/* 
 fn draw_grid(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
     canvas.set_draw_color(sdl2::pixels::Color::RGB(0, 0, 0)); // Black color for grid lines
     
@@ -431,7 +292,7 @@ fn draw_grid(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
         canvas.draw_line((0, i), (1000, i)).unwrap();
     }
 }
-
+ */
 fn draw_roads(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
     canvas.set_draw_color(sdl2::pixels::Color::RGB(100, 100, 100)); // Gray color for roads
     
@@ -443,10 +304,10 @@ fn draw_roads(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
 }
 
 fn draw_intersection(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
-    canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 255, 255)); // White color for intersection
-    
+    canvas.set_draw_color(sdl2::pixels::Color::RGB(100, 100, 100)); // Gray color for roads
     canvas.fill_rect(sdl2::rect::Rect::new(6 * 56, 6 * 56, 6 * 56, 6 * 56)).unwrap();
 }
+
 
 fn draw_center_lines(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
     canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 255, 0)); // Yellow color for center lines
@@ -468,5 +329,52 @@ fn draw_center_lines(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
         
 
         start_y += dash_length + space_length;
+    }
+}
+
+fn draw_boundary_lines(canvas: &mut sdl2::render::Canvas<sdl2::video::Window>) {
+    canvas.set_draw_color(sdl2::pixels::Color::RGB(0, 0, 0)); // Black color for boundary lines
+
+    let thickness: i32 = 4; // Adjusted thickness of boundary lines
+
+    // Vertical boundaries
+    canvas.fill_rect(sdl2::rect::Rect::new(6 * 56, 0, thickness as u32, 1000)).unwrap(); // Left boundary
+    canvas.fill_rect(sdl2::rect::Rect::new(12 * 56 - thickness, 0, thickness as u32, 1000)).unwrap(); // Right boundary
+
+    // Horizontal boundaries - Upper
+    canvas.fill_rect(sdl2::rect::Rect::new(0, 6 * 56 - thickness, 6 * 56, thickness as u32)).unwrap(); // Left part
+    canvas.fill_rect(sdl2::rect::Rect::new(12 * 56, 6 * 56 - thickness, 1000 - 12 * 56, thickness as u32)).unwrap(); // Right part
+
+    // Horizontal boundaries - Lower
+    canvas.fill_rect(sdl2::rect::Rect::new(0, 12 * 56, 6 * 56, thickness as u32)).unwrap(); // Left part
+    canvas.fill_rect(sdl2::rect::Rect::new(12 * 56, 12 * 56, 1000 - 12 * 56, thickness as u32)).unwrap(); // Right part
+
+    // Dashed lines for non-turning sections on intersection
+    let dash_length: i32 = 28; // half of the cell size
+    let space_length: i32 = 28; // another half of the cell size
+    let line_thickness: i32 = 4; // chosen thickness for the dashed lines
+
+    canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 255, 255)); // White color for dashed lines
+    
+    let mut start_pos = 6 * 56;
+    while start_pos < 12 * 56 {
+        // Top line
+        canvas.fill_rect(sdl2::rect::Rect::new(start_pos, 6 * 56 - line_thickness, dash_length as u32, line_thickness as u32)).unwrap();
+        
+        // Bottom line
+        canvas.fill_rect(sdl2::rect::Rect::new(start_pos, 12 * 56, dash_length as u32, line_thickness as u32)).unwrap();
+
+        start_pos += dash_length + space_length;
+    }
+
+    start_pos = 6 * 56;
+    while start_pos < 12 * 56 {
+        // Left line
+        canvas.fill_rect(sdl2::rect::Rect::new(6 * 56 - line_thickness, start_pos, line_thickness as u32, dash_length as u32)).unwrap();
+
+        // Right line
+        canvas.fill_rect(sdl2::rect::Rect::new(12 * 56, start_pos, line_thickness as u32, dash_length as u32)).unwrap();
+        
+        start_pos += dash_length + space_length;
     }
 }
