@@ -1,7 +1,7 @@
 extern crate sdl2;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use vehicle::Vehicle;
+use vehicle::*;
 use intersection_manager::IntersectionManager;
 
  mod vehicle;
@@ -71,7 +71,7 @@ fn main() {
 
     let mut vehicles = Vec::new();
     let mut im = IntersectionManager::new();
-    let physics_engine = PhysicsEngine::new(5.0); // Safety distance of 5 units
+    let physics_engine = PhysicsEngine::new(5.0, 50.0); // Safety distance of 5 units
     let mut next_vehicle_id: i32 = 1;
 
     'running: loop {
@@ -102,6 +102,7 @@ fn main() {
                         time_to_intersection: 0.0,
                         id: next_vehicle_id,
                         acceleration: 0.0,
+                        lane: Lane::Left,
                     };
                     vehicles.push(vehicle);
                     next_vehicle_id += 1;
@@ -131,6 +132,7 @@ fn main() {
                         time_to_intersection: 0.0,
                         id: next_vehicle_id,
                         acceleration: 0.0,
+                        lane: Lane::Right,
                     };
                     vehicles.push(vehicle);
                     next_vehicle_id += 1;
@@ -160,6 +162,7 @@ fn main() {
                         time_to_intersection: 0.0,
                         id: next_vehicle_id,
                         acceleration: 0.0,
+                        lane: Lane::Left,
                     };
                     vehicles.push(vehicle);
                     next_vehicle_id += 1;
@@ -183,12 +186,14 @@ fn main() {
                         position: Position { x: -67.0, y },
                         size: 55.0,
                         velocity: 10.0,
+                        lane: Lane::Right,
                         movement_direction: MovementDirection::Right,
                         turn_direction,
                         distance_to_intersection: 0.0,
                         time_to_intersection: 0.0,
                         id: next_vehicle_id,
                         acceleration: 0.0,
+                        
                     };
                     vehicles.push(vehicle);
                     next_vehicle_id += 1;

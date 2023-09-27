@@ -1,9 +1,14 @@
 use crate::TurnDirection;
-use crate::vehicle::Vehicle;
+use crate::vehicle::*;
+use crate::MovementDirection;
+
 //#[derive(Debug)]
 pub struct Reservation {
     pub vehicle_id: i32,
     pub turn_direction: TurnDirection,
+    pub vehicle_lane: Lane,
+    pub movement_direction: MovementDirection,
+
     pub start_time: std::time::Duration,
     pub end_time: std::time::Duration,
 }
@@ -46,63 +51,84 @@ impl IntersectionManager {
 
     pub fn request_reservation(&mut self, vehicle: &Vehicle) -> Result<(), &'static str> {
         let (start_time, end_time) = self.calculate_reservation_window(vehicle);
-
-        for existing_reservation in &self.reservations {
-            if
-                self.has_conflict(
-                    start_time,
-                    end_time,
-                    vehicle.turn_direction,
-                    existing_reservation
-                )
-            {
-                return Err("Reservation conflict");
+    
+        let mut to_remove = Vec::new(); // Step 1: Create a Vec to store indices
+    
+        for (index, existing_reservation) in self.reservations.iter().enumerate() {
+            if self.has_conflict(
+                start_time,
+                end_time,
+                vehicle.turn_direction,
+                vehicle.movement_direction,
+                vehicle.lane,
+                existing_reservation,
+            ) {
+                if start_time < existing_reservation.start_time {
+                    to_remove.push(index); // Step 2: Populate the Vec
+                } else {
+                    return Err("Reservation conflict");
+                }
             }
         }
+    
+        // Step 3: Remove the reservations at the collected indices
+        for index in to_remove.iter().rev() {
+            self.reservations.remove(*index);
+        }
+    
         let reservation = Reservation {
             vehicle_id: vehicle.id,
             turn_direction: vehicle.turn_direction,
+            movement_direction: vehicle.movement_direction,
+            vehicle_lane: vehicle.lane,
             start_time,
             end_time,
         };
         self.reservations.push(reservation);
         Ok(())
     }
+    
 
     pub fn has_conflict(
         &self,
         proposed_start: std::time::Duration,
         proposed_end: std::time::Duration,
         proposed_turn_direction: TurnDirection,
+        proposed_movement_direction: MovementDirection, 
+        proposed_lane: Lane,
         existing_reservation: &Reservation
     ) -> bool {
-        // Check time overlap
-        if
-            proposed_start <= existing_reservation.end_time &&
-            proposed_end >= existing_reservation.start_time
-        {
-            // Then check direction conflict based on our assumptions
-            match (proposed_turn_direction, existing_reservation.turn_direction) {
-                (TurnDirection::Left, _) => {
-                    return true;
-                } // Left conflicts with everything
-                (_, TurnDirection::Left) => {
-                    return true;
-                } // Anything conflicts with left
-                (TurnDirection::Straight, TurnDirection::Straight) => {
-                    // If they are coming from opposite directions, they conflict
-                    // This would require further details of the direction they're coming from which is not provided currently
-                    // For now, let's assume they always conflict to be safe.
-                    return true;
+         // Check time overlap
+    if proposed_start <= existing_reservation.end_time && proposed_end >= existing_reservation.start_time {
+        // Check for straight movement in opposite directions
+        if proposed_turn_direction == TurnDirection::Straight && existing_reservation.turn_direction == TurnDirection::Straight {
+            match (proposed_movement_direction, existing_reservation.movement_direction) {
+                (MovementDirection::Up, MovementDirection::Down) | 
+                (MovementDirection::Down, MovementDirection::Up) | 
+                (MovementDirection::Right, MovementDirection::Left) | 
+                (MovementDirection::Left, MovementDirection::Right) => {
+                    return false; // No conflict for opposite straight directions
                 }
-                // Add more rules if needed
-                _ => {
-                    return false;
-                } // No conflict for other cases
+                _ => {}
             }
         }
-        false
+        
+        // Check for left turn conflicts
+        if proposed_turn_direction == TurnDirection::Left {
+            return true; // Left turn conflicts with everything in the intersection
+        }
+        
+        // Check for conflicts with left turning vehicles
+        if existing_reservation.turn_direction == TurnDirection::Left {
+            return true; // Anything in the intersection conflicts with a left turning vehicle
+        }
+        
+        // ... Add any other specific conflict rules here ...
+
+        return true; // Default to conflict for safety
     }
+    false // No time overlap, so no conflict
+}
 }
 
 
